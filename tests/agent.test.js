@@ -100,6 +100,13 @@ test('rideChecks flags distance, stop count, preferences and missing includes', 
   assert.ok(rideChecks(good, { maxStops: 1 }).every((c) => c.ok));
 });
 
+test('rideChecks flags three stops of one type, unless the rider asked for only that type', () => {
+  const ride = { requestedKm: 10, route: { distanceKm: 10, source: 'osrm' }, stops: ['a', 'b', 'c'].map((id) => ({ id, category: 'food' })) };
+  assert.ok(rideChecks(ride).some((c) => !c.ok && c.check === 'variety'));
+  const onlyFood = { cafe: 0, culture: 0, sight: 0 };
+  assert.ok(rideChecks(ride, { prefer: onlyFood }).every((c) => c.check !== 'variety'));
+});
+
 test('build_ride before find_places is rejected', async () => {
   const client = scriptedClient([
     toolUse('t1', 'build_ride', {}),

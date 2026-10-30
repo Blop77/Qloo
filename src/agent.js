@@ -191,6 +191,12 @@ export function rideChecks(ride, { maxStops = 3, prefer = {}, include = [] } = {
   if (ride.stops.length < wanted) {
     checks.push({ ok: false, check: 'stops', note: `Only ${ride.stops.length} of ${wanted} stops fit. Try a longer ride, a wider search or other stop types.` });
   }
+  // Rides should mix stop types, unless the rider ruled the other types out ("only cafés").
+  const allowedTypes = ['cafe', 'food', 'culture', 'sight'].filter((type) => (prefer[type] ?? 1) > 0);
+  const types = new Set(ride.stops.map((s) => s.category));
+  if (ride.stops.length >= 2 && types.size === 1 && allowedTypes.length > 1) {
+    checks.push({ ok: false, check: 'variety', note: `All ${ride.stops.length} stops are ${[...types][0]} stops. Try prefer to mix in other types.` });
+  }
   for (const [type, weight] of Object.entries(prefer)) {
     if (weight >= 2 && !ride.stops.some((s) => s.category === type)) {
       checks.push({ ok: false, check: 'preference', note: `The rider wants more ${type} stops, but the ride has none.` });
