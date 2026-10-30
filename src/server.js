@@ -137,8 +137,8 @@ export function createApp({ agent, planDeps } = {}) {
         if (session.busy) return sendJson(res, 409, { error: 'Still working on your last message.' });
         session.busy = true;
         try {
-          const { reply, ride } = await rideAgent.chat(session, message);
-          return sendJson(res, 200, { sessionId: session.id, reply, ride });
+          const { reply, ride, steps } = await rideAgent.chat(session, message);
+          return sendJson(res, 200, { sessionId: session.id, reply, ride, steps: steps ?? [] });
         } catch (err) {
           if (!(err instanceof Anthropic.APIError)) throw err;
           if (err instanceof Anthropic.AuthenticationError) console.error('Anthropic authentication failed: check ANTHROPIC_API_KEY');

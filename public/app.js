@@ -202,6 +202,22 @@ function addMessage(kind, text) {
   return li;
 }
 
+const STEP_ICON = { ok: '✓', retry: '↻', warn: '!', error: '✗' };
+
+/** The agent's step log for one message: searches, checks and the fixes it made. */
+function addSteps(steps) {
+  const fixes = steps.filter((s) => s.status === 'retry').length;
+  const li = document.createElement('li');
+  li.className = 'steps';
+  li.innerHTML = `
+    <details open>
+      <summary>🧭 What the agent did · ${steps.length} step${steps.length === 1 ? '' : 's'}${fixes ? ` · ${fixes} fix${fixes === 1 ? '' : 'es'}` : ''}</summary>
+      <ol>${steps.map((s) => `<li class="step-${escapeHtml(s.status)}"><span class="icon" aria-hidden="true">${STEP_ICON[s.status] ?? '·'}</span><span>${escapeHtml(s.text)}</span></li>`).join('')}</ol>
+    </details>`;
+  $('messages').append(li);
+  return li;
+}
+
 function setBusy(busy) {
   state.busy = busy;
   for (const el of document.querySelectorAll('button, #chat-input')) el.disabled = busy;
@@ -225,6 +241,7 @@ async function sendChat(text) {
     const data = await postJson('/api/chat', { sessionId: state.sessionId, message: text });
     state.sessionId = data.sessionId;
     typing.remove();
+    if (data.steps?.length) addSteps(data.steps);
     addMessage('bot', data.reply);
     if (data.ride) showResults(data.ride);
     return true;

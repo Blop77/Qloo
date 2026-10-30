@@ -144,6 +144,17 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .messages .error { align-self: stretch; background: var(--warm-soft); color: var(--warm); }
 .messages .typing { color: var(--muted); font-style: italic; }
 
+/* The agent's step log, shown above its reply. */
+.messages .steps { align-self: stretch; max-width: none; padding: 0; white-space: normal; }
+.steps details { border: 1px dashed var(--border); border-radius: 10px; padding: 6px 10px; font-size: 0.85rem; }
+.steps summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+.steps ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; }
+.steps li { display: flex; gap: 6px; padding: 0; max-width: none; border-radius: 0; color: var(--muted); }
+.steps .icon { flex: none; width: 1.2em; text-align: center; font-weight: 700; color: var(--accent); }
+.steps .step-retry .icon { color: var(--text); }
+.steps .step-warn .icon, .steps .step-error .icon { color: var(--warm); }
+.steps .step-warn, .steps .step-error { color: var(--text); }
+
 .chat-form { display: flex; gap: 8px; }
 .chat-form input { margin-top: 0; }
 .suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }

@@ -40,13 +40,21 @@ function tourKm(tour) {
  * Each stop goes in at its cheapest position, and the ride never exceeds T * DISTANCE_SLACK.
  *
  * `prefer` maps category ('cafe' | 'food' | 'sight' | 'other') to a weight; 0 excludes it.
+ * `required` candidates go in first, at their cheapest position, whatever their score or the budget.
  */
-export function chooseStops({ start, end = start, candidates, distanceKm, maxStops = 3, prefer = {} }) {
+export function chooseStops({ start, end = start, candidates, distanceKm, maxStops = 3, prefer = {}, required = [] }) {
   const budgetKm = distanceKm * DISTANCE_SLACK;
   const lambda = DISTANCE_WEIGHT / distanceKm;
   const tour = [start, end];
   const chosen = [];
-  const remaining = candidates.filter((c) => c.affinity > 0);
+  const remaining = candidates.filter((c) => c.affinity > 0 && !required.includes(c));
+
+  for (const c of required) {
+    const { insertAt, detourKm } = cheapestInsertion(tour, c);
+    const stop = { ...c, score: round2(c.affinity), detourKm: round1(detourKm) };
+    tour.splice(insertAt, 0, stop);
+    chosen.push(stop);
+  }
 
   while (chosen.length < maxStops) {
     let best = null;
@@ -54,15 +62,7 @@ export function chooseStops({ start, end = start, candidates, distanceKm, maxSto
       const weight = prefer[c.category] ?? DEFAULT_PREFER[c.category] ?? 1;
       if (weight <= 0) continue;
 
-      let insertAt = -1;
-      let detourKm = Infinity;
-      for (let i = 1; i < tour.length; i++) {
-        const delta = roadKm(tour[i - 1], c) + roadKm(c, tour[i]) - roadKm(tour[i - 1], tour[i]);
-        if (delta < detourKm) {
-          detourKm = delta;
-          insertAt = i;
-        }
-      }
+      const { insertAt, detourKm } = cheapestInsertion(tour, c);
       const lengthKm = tourKm(tour);
       if (lengthKm + detourKm > budgetKm) continue;
 
@@ -80,6 +80,20 @@ export function chooseStops({ start, end = start, candidates, distanceKm, maxSto
   }
 
   return { stops: tour.slice(1, -1), estimatedKm: round1(tourKm(tour)) };
+}
+
+/** Where in the tour `c` adds the least distance, and how much it adds. */
+function cheapestInsertion(tour, c) {
+  let insertAt = -1;
+  let detourKm = Infinity;
+  for (let i = 1; i < tour.length; i++) {
+    const delta = roadKm(tour[i - 1], c) + roadKm(c, tour[i]) - roadKm(tour[i - 1], tour[i]);
+    if (delta < detourKm) {
+      detourKm = delta;
+      insertAt = i;
+    }
+  }
+  return { insertAt, detourKm };
 }
 
 function round2(x) {
@@ -200,9 +214,20 @@ async function resolvePoint(where, label, deps) {
  * `deps.fetchImpl` replaces fetch for every network call (used by tests).
  */
 export async function planRide({ start, end, distanceKm = 15, tastes = [], prefer = {}, maxStops = 3 }, deps = {}) {
+  const search = await gatherCandidates({ start, end, distanceKm, tastes }, deps);
+  return assembleRide(search, { prefer, maxStops }, deps);
+}
+
+const clampKm = (km) => Math.min(Math.max(Number(km) || 15, 3), 120);
+
+/**
+ * First half of the pipeline: where the ride goes, and which places Qloo says these riders would like.
+ * `radiusKm` overrides the search radius (by default it covers everywhere a ride of `distanceKm` could reach).
+ * The agent calls this on its own so it can widen the search or fix tastes before building a ride.
+ */
+export async function gatherCandidates({ start, end, distanceKm = 15, tastes = [], radiusKm }, deps = {}) {
   if (!tastes.length) throw new PlanError('Tell me at least one film, artist, food or place you love.');
-  distanceKm = Math.min(Math.max(Number(distanceKm) || 15, 3), 120);
-  maxStops = Math.min(Math.max(Math.round(Number(maxStops) || 3), 1), 6);
+  distanceKm = clampKm(distanceKm);
 
   const startPt = await resolvePoint(start, 'start', deps);
   const loop = !end || String(end).trim() === '';
@@ -214,8 +239,8 @@ export async function planRide({ start, end, distanceKm = 15, tastes = [], prefe
 
   // Search a circle that covers everywhere the ride could reach.
   const center = loop ? startPt : { lat: (startPt.lat + endPt.lat) / 2, lon: (startPt.lon + endPt.lon) / 2 };
-  const radiusKm = loop ? distanceKm / 2 : Math.max(distanceKm / 2, haversineKm(startPt, endPt) / 2 + 2);
-  const area = { center, radiusKm };
+  const reachKm = loop ? distanceKm / 2 : Math.max(distanceKm / 2, haversineKm(startPt, endPt) / 2 + 2);
+  const area = { center, radiusKm: Number(radiusKm) > 0 ? Math.min(Math.max(Number(radiusKm), 1), 40) : reachKm };
 
   // Riding with a friend: ask Qloo separately for each rider, then favour places both of them like.
   const [you, friend] = await Promise.all([
@@ -236,7 +261,34 @@ export async function planRide({ start, end, distanceKm = 15, tastes = [], prefe
   ];
   const missingTastes = riders.flatMap((r) => r.lookups.filter((l) => !l.entity).map((l) => l.query));
 
-  const { stops } = chooseStops({ start: startPt, end: endPt, candidates, distanceKm, maxStops, prefer });
+  return {
+    start: startPt,
+    end: endPt,
+    loop,
+    distanceKm,
+    radiusKm: area.radiusKm,
+    candidates,
+    found,
+    missingTastes,
+    withFriend,
+    friendStats: withFriend
+      ? { you: you.candidates.length, friend: friend.candidates.length, both: candidates.filter((c) => c.likedBy === 'both').length }
+      : null,
+  };
+}
+
+/**
+ * Second half: picks stops from a gatherCandidates() result and routes the ride.
+ * `include` / `exclude` are candidate ids to force in or leave out.
+ */
+export async function assembleRide(search, { distanceKm = search.distanceKm, prefer = {}, maxStops = 3, include = [], exclude = [] } = {}, deps = {}) {
+  distanceKm = clampKm(distanceKm);
+  maxStops = Math.min(Math.max(Math.round(Number(maxStops) || 3), 1), 6);
+  const { start: startPt, end: endPt, loop, found, missingTastes, withFriend } = search;
+
+  const candidates = search.candidates.filter((c) => !exclude.includes(c.id));
+  const required = include.map((id) => candidates.find((c) => c.id === id)).filter(Boolean);
+  const { stops } = chooseStops({ start: startPt, end: endPt, candidates, distanceKm, maxStops, prefer, required });
   const route = await routeBike([startPt, ...stops, endPt], deps);
 
   return {
@@ -253,12 +305,10 @@ export async function planRide({ start, end, distanceKm = 15, tastes = [], prefe
     route: { geometry: route.geometry, distanceKm: route.distanceKm, durationMin: route.durationMin, source: route.source },
     tastes: found,
     missingTastes,
-    candidatesConsidered: candidates.length,
+    candidatesConsidered: search.candidates.length,
     withFriend,
-    friendStats: withFriend
-      ? { you: you.candidates.length, friend: friend.candidates.length, both: candidates.filter((c) => c.likedBy === 'both').length }
-      : null,
-    searchRadiusKm: round1(radiusKm),
+    friendStats: search.friendStats,
+    searchRadiusKm: round1(search.radiusKm),
     dataSource: qlooIsLive() ? 'qloo' : 'demo',
   };
 }

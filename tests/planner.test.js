@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { config } from '../src/config.js';
 import { clearQlooCache } from '../src/qloo.js';
-import { blendForTwo, chooseStops, planRide, PlanError } from '../src/planner.js';
+import { assembleRide, blendForTwo, chooseStops, gatherCandidates, planRide, PlanError } from '../src/planner.js';
 import { FC_ROAD, offlineFetch } from './helpers.js';
 
 config.qlooApiKey = ''; // demo data
@@ -74,6 +74,33 @@ test('chooseStops orders stops along the ride and reports detours', () => {
   const { stops } = chooseStops({ start: FC_ROAD, end: place('end', 'other', 0, 4), candidates, distanceKm: 12 });
   assert.deepEqual(stops.map((s) => s.id), ['near', 'far']);
   assert.ok(stops.every((s) => s.detourKm >= 0));
+});
+
+test('chooseStops puts required stops in, even low-scoring or far ones', () => {
+  const far = place('far', 'sight', 0.1, 9);
+  const candidates = [place('near', 'cafe', 0.9, 1), far];
+  const { stops } = chooseStops({ start: FC_ROAD, candidates, distanceKm: 6, maxStops: 2, required: [far] });
+  assert.ok(stops.some((s) => s.id === 'far'));
+  assert.equal(stops.filter((s) => s.id === 'far').length, 1);
+});
+
+test('gatherCandidates + assembleRide: wider radius, include and exclude', async () => {
+  const deps = { fetchImpl: offlineFetch };
+  const tastes = [{ name: 'Spirited Away', category: 'movie' }, { name: 'coffee', category: 'food' }];
+  const narrow = await gatherCandidates({ start: FC_ROAD, distanceKm: 6, tastes }, deps);
+  const wide = await gatherCandidates({ start: FC_ROAD, distanceKm: 6, tastes, radiusKm: 15 }, deps);
+  assert.equal(wide.radiusKm, 15);
+  assert.ok(wide.candidates.length >= narrow.candidates.length);
+
+  const first = await assembleRide(wide, { maxStops: 3 }, deps);
+  const dropped = first.stops[0].id;
+  const without = await assembleRide(wide, { maxStops: 3, exclude: [dropped] }, deps);
+  assert.ok(!without.stops.some((s) => s.id === dropped));
+
+  const pick = wide.candidates.at(-1).id;
+  const withPick = await assembleRide(wide, { maxStops: 3, include: [pick] }, deps);
+  assert.ok(withPick.stops.some((s) => s.id === pick));
+  assert.equal(withPick.searchRadiusKm, 15);
 });
 
 test('planRide (demo data) returns an explained loop ride', async () => {

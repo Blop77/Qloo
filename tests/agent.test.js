@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createAgent } from '../src/agent.js';
+import { createAgent, rideChecks } from '../src/agent.js';
 import { config } from '../src/config.js';
 import { offlineFetch } from './helpers.js';
 
@@ -26,19 +26,26 @@ function scriptedClient(responses) {
 
 const toolUse = (id, name, input) => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id, name, input }] });
 
-test('agent plans a ride, attaches reasons and replies', async () => {
+const lastResult = (params) => params.messages.at(-1).content[0];
+
+test('agent finds places, builds a ride, attaches reasons and replies', async () => {
   const client = scriptedClient([
-    toolUse('t1', 'plan_ride', { start: '18.5236,73.841', distance_km: 12, tastes: [{ name: 'Studio Ghibli', category: 'movie' }] }),
+    toolUse('t1', 'find_places', { start: '18.5236,73.841', distance_km: 12, tastes: [{ name: 'Studio Ghibli', category: 'movie' }] }),
     (params) => {
-      const result = params.messages.at(-1).content[0];
-      assert.equal(result.type, 'tool_result');
+      const result = lastResult(params);
       assert.equal(result.tool_use_id, 't1');
-      const plan = JSON.parse(result.content);
-      assert.equal(plan.dataSource, 'demo');
-      const first = plan.stops[0];
-      return toolUse('t2', 'show_ride', {
+      const search = JSON.parse(result.content);
+      assert.equal(search.dataSource, 'demo');
+      assert.ok(search.candidates.length > 0);
+      assert.ok(search.tastesRecognised.length > 0);
+      return toolUse('t2', 'build_ride', {});
+    },
+    (params) => {
+      const ride = JSON.parse(lastResult(params).content);
+      assert.ok(Array.isArray(ride.checks));
+      return toolUse('t3', 'show_ride', {
         summary: 'A calm loop.',
-        reasons: [{ stop_id: first.stop_id, why: 'Quiet and green, like a Ghibli film.' }],
+        reasons: [{ stop_id: ride.stops[0].stop_id, why: 'Quiet and green, like a Ghibli film.' }],
       });
     },
     { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Your ride is ready! (sample data)' }] },
@@ -46,12 +53,16 @@ test('agent plans a ride, attaches reasons and replies', async () => {
 
   const agent = createAgent({ client, planDeps: { fetchImpl: offlineFetch } });
   const session = { messages: [], ride: null };
-  const { reply, ride } = await agent.chat(session, 'Ride from FC Road, I love Studio Ghibli');
+  const { reply, ride, steps } = await agent.chat(session, 'Ride from FC Road, I love Studio Ghibli');
 
   assert.equal(reply, 'Your ride is ready! (sample data)');
   assert.equal(ride.summary, 'A calm loop.');
   assert.equal(ride.stops[0].why, 'Quiet and green, like a Ghibli film.');
-  assert.equal(client.requests.length, 3);
+  assert.equal(ride.requestedKm, 12);
+  assert.equal(client.requests.length, 4);
+  assert.match(steps[0].text, /Matched in Qloo/);
+  assert.ok(steps.some((s) => /^Built a /.test(s.text)));
+  assert.equal(steps.at(-1).text, 'Wrote why each stop fits you');
 
   // Request shape: model, refusal fallbacks, effort.
   const req = client.requests[0];
@@ -59,7 +70,45 @@ test('agent plans a ride, attaches reasons and replies', async () => {
   assert.equal(req.fallbacks, 'default');
   assert.deepEqual(req.betas, ['server-side-fallback-2026-07-01']);
   assert.deepEqual(req.output_config, { effort: 'medium' });
-  assert.deepEqual(req.tools.map((t) => t.name), ['plan_ride', 'show_ride']);
+  assert.deepEqual(req.tools.map((t) => t.name), ['find_places', 'build_ride', 'show_ride']);
+});
+
+test('a failed check goes back to the agent, and the fix shows up as a retry step', async () => {
+  const client = scriptedClient([
+    toolUse('t1', 'find_places', { start: '18.5236,73.841', distance_km: 10, tastes: [{ name: 'coffee', category: 'food' }] }),
+    toolUse('t2', 'build_ride', { prefer: { cafe: 1, food: 0, culture: 0, sight: 0, stay: 2 } }),
+    (params) => {
+      const ride = JSON.parse(lastResult(params).content);
+      assert.equal(ride.allChecksPassed, false);
+      assert.ok(ride.checks.some((c) => !c.ok && c.check === 'preference'));
+      return toolUse('t3', 'build_ride', {});
+    },
+    { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Fixed it.' }] },
+  ]);
+  const { steps } = await createAgent({ client, planDeps: { fetchImpl: offlineFetch } }).chat({ messages: [], ride: null }, 'coffee ride');
+  assert.ok(steps.some((s) => s.status === 'warn' && /^Check:/.test(s.text)));
+  assert.ok(steps.some((s) => s.status === 'retry' && /^Rebuilt/.test(s.text)));
+});
+
+test('rideChecks flags distance, stop count, preferences and missing includes', () => {
+  const ride = { requestedKm: 20, route: { distanceKm: 9, source: 'osrm' }, stops: [{ id: 'a', category: 'sight' }] };
+  const checks = rideChecks(ride, { maxStops: 3, prefer: { food: 2, sight: 0 }, include: ['zzz'] });
+  const failed = checks.filter((c) => !c.ok).map((c) => c.check);
+  assert.deepEqual(failed.sort(), ['distance', 'include', 'preference', 'preference', 'stops']);
+
+  const good = { requestedKm: 10, route: { distanceKm: 10.5, source: 'osrm' }, stops: [{ id: 'a', category: 'cafe' }] };
+  assert.ok(rideChecks(good, { maxStops: 1 }).every((c) => c.ok));
+});
+
+test('build_ride before find_places is rejected', async () => {
+  const client = scriptedClient([
+    toolUse('t1', 'build_ride', {}),
+    (params) => {
+      assert.equal(lastResult(params).is_error, true);
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+    },
+  ]);
+  await createAgent({ client }).chat({ messages: [], ride: null }, 'hi');
 });
 
 test('history is append-only across turns', async () => {
@@ -78,7 +127,7 @@ test('history is append-only across turns', async () => {
 
 test('planning errors go back to the model as tool errors', async () => {
   const client = scriptedClient([
-    toolUse('t1', 'plan_ride', { start: 'Nowhere-ville', tastes: [{ name: 'jazz' }] }),
+    toolUse('t1', 'find_places', { start: 'Nowhere-ville', tastes: [{ name: 'jazz' }] }),
     (params) => {
       const result = params.messages.at(-1).content[0];
       assert.equal(result.is_error, true);
