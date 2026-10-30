@@ -178,13 +178,16 @@ function searchProblems(search) {
   return problems;
 }
 
+// A ride may be this much longer than asked before the distance check fails (and the agent rebuilds it).
+const DISTANCE_OVER = 1.15;
+
 /** Compares a built ride with what was asked for. Each check passes or says what's wrong. */
 export function rideChecks(ride, { maxStops = 3, prefer = {}, include = [] } = {}) {
   const checks = [];
   const km = ride.route.distanceKm;
   const asked = ride.requestedKm;
   if (km < asked * 0.75) checks.push({ ok: false, check: 'distance', note: `${km} km is well short of the ${asked} km asked for. Try more stops or a wider search.` });
-  else if (km > asked * 1.25) checks.push({ ok: false, check: 'distance', note: `${km} km is well over the ${asked} km asked for. Try fewer or closer stops.` });
+  else if (km > asked * DISTANCE_OVER) checks.push({ ok: false, check: 'distance', note: `${km} km is too far over the ${asked} km asked for. Try fewer or closer stops.` });
   else checks.push({ ok: true, check: 'distance', note: `${km} km for ${asked} km asked.` });
 
   const wanted = Math.min(Math.max(Math.round(Number(maxStops) || 3), 1), 6);

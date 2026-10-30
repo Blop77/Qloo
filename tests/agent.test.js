@@ -100,6 +100,12 @@ test('rideChecks flags distance, stop count, preferences and missing includes', 
   assert.ok(rideChecks(good, { maxStops: 1 }).every((c) => c.ok));
 });
 
+test('rideChecks: more than 15% over the asked distance fails', () => {
+  const ride = (km) => ({ requestedKm: 15, route: { distanceKm: km, source: 'osrm' }, stops: [{ id: 'a', category: 'cafe' }] });
+  assert.ok(rideChecks(ride(18.7), { maxStops: 1 }).some((c) => !c.ok && c.check === 'distance'));
+  assert.ok(rideChecks(ride(17.2), { maxStops: 1 }).every((c) => c.ok));
+});
+
 test('rideChecks flags three stops of one type, unless the rider asked for only that type', () => {
   const ride = { requestedKm: 10, route: { distanceKm: 10, source: 'osrm' }, stops: ['a', 'b', 'c'].map((id) => ({ id, category: 'food' })) };
   assert.ok(rideChecks(ride).some((c) => !c.ok && c.check === 'variety'));
