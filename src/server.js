@@ -167,6 +167,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   createApp().listen(config.port, () => {
     console.log(`RideTaste running at http://localhost:${config.port}`);
     console.log(`  Qloo:  ${qlooIsLive() ? 'live API' : 'DEMO sample data (set QLOO_API_KEY for real results)'}`);
+    // Names only (never values), to spot a mistyped or empty OpenAI key setting.
+    const openaiVars = Object.keys(process.env).filter((k) => /openai|chatgpt|gpt/i.test(k));
+    console.log(`  OpenAI settings seen: ${openaiVars.map((k) => `"${k}"${process.env[k]?.trim() ? '' : ' (empty)'}`).join(', ') || 'none'}`);
     const agentModel = agentProvider() === 'openai' ? `OpenAI ${config.openaiModel}` : `Claude ${config.model}`;
     console.log(`  Agent: ${agentIsAvailable() ? agentModel : 'off (set OPENAI_API_KEY or ANTHROPIC_API_KEY to enable chat)'}`);
   });
