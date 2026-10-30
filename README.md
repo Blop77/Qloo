@@ -57,7 +57,7 @@ $$\text{score} = \text{affinity} \times \text{preference} \times 0.75^{\text{rep
 - *L* is the ride length so far, *T* the requested distance and $\lambda = 0.6 / T$. While the ride is too
   short, a detour helps. Once it's long enough, a detour costs. The ride never goes over $1.15\,T$.
 
-**The agent** runs on ChatGPT (OpenAI's API, `gpt-4.1` by default). It can also run on Claude (Anthropic's API) with the
+**The agent** runs on ChatGPT through OpenAI's API. The live demo uses `gpt-6.1-terra`; the code defaults to `gpt-4.1`. It can also run on Claude (Anthropic's API) with the
 same tools. It plans in steps and checks its own work:
 
 1. **`find_places`** asks Qloo for places. The result says what each favourite matched and lists any problems:
@@ -107,7 +107,8 @@ npm start                 # http://localhost:3000
 | Variable | Needed for | Without it |
 |---|---|---|
 | `OPENAI_API_KEY` | The chat agent on ChatGPT | Uses Claude if `ANTHROPIC_API_KEY` is set, otherwise only the quick-plan form works |
-| `OPENAI_MODEL` | Which ChatGPT model to use | Defaults to `gpt-4.1` |
+| `OPENAI_MODEL` | Which ChatGPT model to use (the live demo uses `gpt-6.1-terra`) | Defaults to `gpt-4.1` |
+| `OPENAI_REASONING_EFFORT` | Set to `none` for reasoning models such as `gpt-6.1-terra`, which only accept tools with reasoning off | Not sent (right for `gpt-4.1`) |
 | `ANTHROPIC_API_KEY` | The chat agent on Claude (used when no OpenAI key is set) | Only the quick-plan form works |
 | `QLOO_API_KEY` | Real taste-matched places | Uses **sample data** for Pune (shown with a "Demo data" badge) |
 | `QLOO_BASE_URL` | The Qloo API host given with your key | Defaults to `https://hackathon.api.qloo.com` |
