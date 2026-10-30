@@ -24,7 +24,7 @@ Built for the [Qloo Agentic Hackathon](https://qloo.devpost.com) (2026).
 ## How it works
 
 ```
- rider ──chat──► Claude agent
+ rider ──chat──► AI agent (ChatGPT)
                      │
                      ├──find_places──► geocode start (OpenStreetMap Nominatim)
                      │                 favourites → Qloo entities         (Qloo /search)
@@ -57,7 +57,8 @@ $$\text{score} = \text{affinity} \times \text{preference} \times 0.75^{\text{rep
 - *L* is the ride length so far, *T* the requested distance and $\lambda = 0.6 / T$. While the ride is too
   short, a detour helps. Once it's long enough, a detour costs. The ride never goes over $1.15\,T$.
 
-**The agent** (Claude, through the Anthropic API) plans in steps and checks its own work:
+**The agent** runs on ChatGPT (OpenAI's API, `gpt-4.1` by default). It can also run on Claude (Anthropic's API) with the
+same tools. It plans in steps and checks its own work:
 
 1. **`find_places`** asks Qloo for places. The result says what each favourite matched and lists any problems:
    tastes Qloo didn't recognise, too few places, or no cafés, food or sights. The agent fixes these itself:
@@ -81,7 +82,7 @@ invent opening hours, prices or road conditions.
   how many places Qloo's Insights API returned, and how the stops were chosen, plus Qloo's tags on each stop
 - **An agent that checks its own work**: it re-searches when Qloo misses a taste or finds too few places, rebuilds rides that miss the distance or lack variety, and shows every step in the chat ("What the agent did")
 - Chat-based planning with follow-up changes, plus a quick-plan form that works without the AI agent
-- **Keeps working if the AI is down**: if Claude is unavailable (no credits, overloaded, offline), chat pauses for
+- **Keeps working if the AI is down**: if the AI model is unavailable (no credits, overloaded, offline), chat pauses for
   two minutes and rides come from the quick planner. The **Shorter**, **More food** and **Only cafés** buttons
   still re-plan the ride, so Qloo still picks every stop
 - Loop rides or one-way rides (start A, finish B)
@@ -105,7 +106,9 @@ npm start                 # http://localhost:3000
 
 | Variable | Needed for | Without it |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | The chat agent | Only the quick-plan form works |
+| `OPENAI_API_KEY` | The chat agent on ChatGPT | Uses Claude if `ANTHROPIC_API_KEY` is set, otherwise only the quick-plan form works |
+| `OPENAI_MODEL` | Which ChatGPT model to use | Defaults to `gpt-4.1` |
+| `ANTHROPIC_API_KEY` | The chat agent on Claude (used when no OpenAI key is set) | Only the quick-plan form works |
 | `QLOO_API_KEY` | Real taste-matched places | Uses **sample data** for Pune (shown with a "Demo data" badge) |
 | `QLOO_BASE_URL` | The Qloo API host given with your key | Defaults to `https://hackathon.api.qloo.com` |
 
@@ -120,7 +123,7 @@ npm test
 The repo includes a [Render](https://render.com) blueprint (`render.yaml`):
 
 1. In Render, choose **New → Blueprint** and pick this repository.
-2. Enter `ANTHROPIC_API_KEY` and `QLOO_API_KEY` when asked.
+2. Enter `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY`) and `QLOO_API_KEY` when asked.
 3. Render builds and gives you a public URL. Use it as the demo link on Devpost.
 
 Any Node host works: run `npm ci && npm start` and set `PORT`.
@@ -129,7 +132,7 @@ Any Node host works: run `npm ci && npm start` and set `PORT`.
 
 | File | What it does |
 |---|---|
-| `src/agent.js` | Claude agent loop, system prompt, the `find_places` / `build_ride` / `show_ride` tools and the ride checks |
+| `src/agent.js` | Agent loop for ChatGPT or Claude, system prompt, the `find_places` / `build_ride` / `show_ride` tools and the ride checks |
 | `src/planner.js` | The pipeline (`gatherCandidates` + `assembleRide`) and the stop-picking algorithm |
 | `src/qloo.js` | Qloo client (`/search`, `/v2/insights`) with tolerant response parsing |
 | `src/geo.js` | Distances, geocoding, bike routing, with offline fallbacks |
@@ -149,7 +152,7 @@ Any Node host works: run `npm ci && npm start` and set `PORT`.
 ## Credits
 
 - Taste data: [Qloo](https://www.qloo.com) Taste AI
-- AI agent: [Claude](https://www.anthropic.com) by Anthropic
+- AI agent: [ChatGPT](https://openai.com) by OpenAI (also runs on [Claude](https://www.anthropic.com) by Anthropic)
 - Maps, geocoding and routing: [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors,
   [Nominatim](https://nominatim.org), [OSRM](https://project-osrm.org) (bike profile hosted by FOSSGIS)
 - Map library: [Leaflet](https://leafletjs.com) 1.9.4 (BSD-2-Clause, bundled in `public/vendor/leaflet`)

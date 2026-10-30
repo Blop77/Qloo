@@ -35,7 +35,7 @@ RideTaste is an AI agent that plans bike rides around your taste.
 
 ## How I built it
 - **Qloo Insights API:** `/search` resolves each favourite to a Qloo entity, `/v2/tags` turns foods and drinks into taste tags, and `/v2/insights` with `filter.type=urn:entity:place`, `signal.interests.entities`, `signal.interests.tags` and `filter.location` returns nearby places with an affinity score. Qloo is the core of the app: without it there's no link from "I love Spirited Away" to "this café".
-- **Agent:** Claude (Anthropic API) plans in steps and checks its own work. `find_places` asks Qloo for places and reports problems (a favourite Qloo didn't recognise, too few places, no cafés or food), which the agent fixes by retrying with other wording or a wider search. `build_ride` picks the stops, routes the ride and checks it against the request (distance, number of stops, a mix of stop types, preferences); when a check fails, the agent changes the plan and builds again. `show_ride` writes a grounded one-line reason for each stop. Every search, check and fix is shown in the chat under "What the agent did". The system prompt tells it to use only tool data, never invent opening hours, prices or road conditions, and say when data is sample or approximate. If Claude is ever unavailable, the app falls back to the same planner without the chat, and the Shorter, More food and Only cafés buttons still re-plan the ride, so Qloo still picks every stop.
+- **Agent:** ChatGPT (OpenAI API, `gpt-4.1` with function calling) plans in steps and checks its own work. The same tools also run on Claude (Anthropic API). `find_places` asks Qloo for places and reports problems (a favourite Qloo didn't recognise, too few places, no cafés or food), which the agent fixes by retrying with other wording or a wider search. `build_ride` picks the stops, routes the ride and checks it against the request (distance, number of stops, a mix of stop types, preferences); when a check fails, the agent changes the plan and builds again. `show_ride` writes a grounded one-line reason for each stop. Every search, check and fix is shown in the chat under "What the agent did". The system prompt tells it to use only tool data, never invent opening hours, prices or road conditions, and say when data is sample or approximate. If the AI model is ever unavailable, the app falls back to the same planner without the chat, and the Shorter, More food and Only cafés buttons still re-plan the ride, so Qloo still picks every stop.
 - **Choosing stops:** a greedy planner inserts each stop at its cheapest point in the ride and scores candidates by taste and distance fit:
 
 $$\text{score} = \text{affinity} \times \text{preference} \times 0.75^{\text{repeats}} - \lambda \cdot \Delta\lvert L - T \rvert$$
@@ -55,7 +55,7 @@ where *L* is the current ride length, *T* the requested distance and \\( \lambda
 ## Accomplishments that I'm proud of
 - It runs on live Qloo data in Pune, where I ride, and in New York, with real bike routes and "at km X" for every stop.
 - **Ride with a friend** really blends two tastes: a stop only ranks high if Qloo says it suits both of you, and each stop shows both matches (e.g. German Bakery: you 79%, friend 81%).
-- **The agent fixes its own plans.** In a live test it built an 18.7 km ride for a 15 km request, rebuilt it, saw the second try had only food stops, and rebuilt again into a 14.9 km ride with a café, a meal and a viewpoint. All of that is visible in the chat.
+- **The agent fixes its own plans.** In a live test it built a 19.6 km ride for a 15 km request, its own distance check flagged the ride as too long, and it rebuilt it with fewer stops. All of that is visible in the chat.
 - Every recommendation is explainable: the "How Qloo picked these stops" panel shows the Qloo matches, how many places came back and how the stops were chosen.
 - 64 automated tests run in GitHub Actions on Node 20 and 22, and there's a demo mode so anyone can run it without keys.
 
@@ -85,7 +85,7 @@ where *L* is the current ride length, *T* the requested distance and \\( \lambda
 ## Built with
 
 ```
-javascript, node.js, qloo, claude, anthropic-api, leaflet, openstreetmap, osrm, nominatim, html5, css3, render
+javascript, node.js, qloo, openai, chatgpt, claude, anthropic-api, leaflet, openstreetmap, osrm, nominatim, html5, css3, render
 ```
 
 ## Try it out links
