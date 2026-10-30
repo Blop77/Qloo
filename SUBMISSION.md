@@ -49,7 +49,7 @@ $$\text{score} = \text{affinity} \times \text{preference} \times 0.75^{\text{rep
 
 where *L* is the current ride length, *T* the requested distance and \\( \lambda = 0.6/T \\). While the ride is too short a detour helps; once it's long enough a detour costs. The 0.75 repeat factor mixes cafés, food and sights.
 - **Maps:** OpenStreetMap geocoding (Nominatim), bike routing (OSRM bike profile) and Leaflet.
-- **Stack:** Node.js with no framework, plain HTML/CSS/JS and 68 automated tests (`node --test`).
+- **Stack:** Node.js with no framework, plain HTML/CSS/JS and 70 automated tests (`node --test`).
 
 ## Challenges I ran into
 - **Rides came out far too short.** My first scoring rule just penalised detours, so a 15 km request gave a 5 km ride, because the best-matching places were all close together. Scoring by how much a stop moves the ride *towards the requested distance* fixed it.
@@ -62,9 +62,9 @@ where *L* is the current ride length, *T* the requested distance and \\( \lambda
 ## Accomplishments that I'm proud of
 - It runs on live Qloo data in Pune, where I ride, and in New York, with real bike routes and "at km X" for every stop.
 - **Ride with a friend** really blends two tastes: a stop only ranks high if Qloo says it suits both of you, and each stop shows both matches (e.g. German Bakery: you 79%, friend 81%).
-- **The agent fixes its own plans.** In a live test it built a 19.6 km ride for a 15 km request, its own distance check flagged the ride as too long, and it rebuilt it with fewer stops. All of that is visible in the chat.
+- **The agent fixes its own plans.** In a live test it built an 18.7 km ride for a 15 km request; its own distance check rejected it twice, and it rebuilt it into a 16.5 km loop with a viewpoint and two food stops. All of that is visible in the chat.
 - Every recommendation is explainable: the "How Qloo picked these stops" panel shows the Qloo matches, how many places came back and how the stops were chosen.
-- 68 automated tests run in GitHub Actions on Node 20 and 22, and there's a demo mode so anyone can run it without keys.
+- 70 automated tests run in GitHub Actions on Node 20 and 22, and there's a demo mode so anyone can run it without keys.
 
 ## What I learned
 - **How Qloo's taste graph links domains.** A film and a singer can point to a café. The affinity score says how much people with your taste like a place, but not *which* favourite caused it, so the explanations have to stay honest.
