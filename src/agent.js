@@ -1,9 +1,9 @@
-// The RideTaste agent: Claude chats with the rider and plans in steps. It asks Qloo for places
+// The RideTaste agent: the model (ChatGPT or Claude) chats with the rider and plans in steps. It asks Qloo for places
 // (find_places), builds and checks a ride from them (build_ride), fixes what the checks flag,
 // then explains each stop on the map (show_ride). Every step is logged for the rider to see.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { config, qlooIsLive } from './config.js';
+import { agentProvider, config, qlooIsLive } from './config.js';
 import { assembleRide, gatherCandidates, PlanError } from './planner.js';
 import { TASTE_CATEGORIES } from './qloo.js';
 
@@ -346,9 +346,96 @@ async function runTool(name, input, session, turn, planDeps) {
   return { content: `Unknown tool ${name}`, isError: true, steps: [] };
 }
 
-export function createAgent({ client, planDeps } = {}) {
-  const anthropic = client ?? new Anthropic({ apiKey: config.anthropicApiKey });
+/** Thrown when the OpenAI API can't answer (bad key, no credits, rate limit, outage), so chat can pause. */
+export class AgentUnavailableError extends Error {
+  constructor(message, status = null) {
+    super(message);
+    this.name = 'AgentUnavailableError';
+    this.status = status;
+  }
+}
 
+/** A minimal OpenAI Chat Completions client, shaped like the official SDK so tests can swap it out. */
+function openaiClient({ apiKey, baseUrl }) {
+  async function create(params) {
+    let res;
+    try {
+      res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+        signal: AbortSignal.timeout(120_000),
+      });
+    } catch (err) {
+      throw new AgentUnavailableError(`OpenAI unreachable: ${err.message}`);
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new AgentUnavailableError(`OpenAI ${res.status}: ${body.error?.message ?? res.statusText}`, res.status);
+    return body;
+  }
+  return { chat: { completions: { create } } };
+}
+
+// The same tools in OpenAI's function-calling format.
+const OPENAI_TOOLS = TOOLS.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
+
+function parseArguments(json) {
+  try {
+    const input = JSON.parse(json || '{}');
+    return input && typeof input === 'object' ? input : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Creates the chat agent. It runs on OpenAI (ChatGPT) when `provider` is 'openai' and on Claude when it's
+ * 'anthropic'; by default it follows the API keys that are set (see agentProvider in config.js).
+ * A test `client` picks its provider by shape: `chat.completions` for OpenAI, `beta.messages` for Claude.
+ */
+export function createAgent({ client, planDeps, provider } = {}) {
+  const which = provider ?? (client ? (client.chat?.completions ? 'openai' : 'anthropic') : agentProvider());
+  return which === 'openai'
+    ? openaiAgent(client ?? openaiClient({ apiKey: config.openaiApiKey, baseUrl: config.openaiBaseUrl }), planDeps)
+    : claudeAgent(client ?? new Anthropic({ apiKey: config.anthropicApiKey }), planDeps);
+}
+
+function openaiAgent(openai, planDeps) {
+  /** Same contract as the Claude agent's chat(): returns the reply, the latest ride and this message's steps. */
+  async function chat(session, userText) {
+    session.messages.push({ role: 'user', content: userText });
+    const turn = { steps: [], searches: 0, builds: 0 };
+    const done = (reply) => ({ reply, ride: session.ride ?? null, steps: turn.steps });
+
+    for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+      const response = await openai.chat.completions.create({
+        model: config.openaiModel,
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...session.messages],
+        tools: OPENAI_TOOLS,
+      });
+      const message = response.choices?.[0]?.message;
+      if (!message) return done('Sorry, something went wrong. Please try again.');
+      const calls = message.tool_calls ?? [];
+      session.messages.push({ role: 'assistant', content: message.content ?? null, ...(calls.length ? { tool_calls: calls } : {}) });
+
+      if (message.refusal) return done("Sorry, I can't help with that one. Want to plan a ride instead?");
+      if (!calls.length) return done(String(message.content ?? '').trim() || 'Your ride is on the map.');
+
+      // Each tool call gets its own "tool" message with the result.
+      for (const call of calls) {
+        const { content, isError, steps } = await runTool(call.function?.name, parseArguments(call.function?.arguments), session, turn, planDeps);
+        turn.steps.push(...steps);
+        session.messages.push({ role: 'tool', tool_call_id: call.id, content: isError ? `Error: ${content}` : content });
+      }
+    }
+
+    return done('That took more steps than expected. Your latest ride is on the map.');
+  }
+
+  return { chat, provider: 'openai' };
+}
+
+function claudeAgent(anthropic, planDeps) {
   /**
    * Runs one rider message through the agent. `session` keeps {messages, search, ride} between calls.
    * Returns the reply, the latest ride and the steps the agent took for this message.
@@ -398,5 +485,5 @@ export function createAgent({ client, planDeps } = {}) {
     return done('That took more steps than expected. Your latest ride is on the map.');
   }
 
-  return { chat };
+  return { chat, provider: 'anthropic' };
 }

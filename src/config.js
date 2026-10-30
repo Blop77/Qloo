@@ -14,6 +14,11 @@ export const config = {
   anthropicApiKey: env.ANTHROPIC_API_KEY || '',
   model: env.RIDETASTE_MODEL || 'claude-opus-5-5',
 
+  // ChatGPT (OpenAI). When this key is set, the agent uses OpenAI instead of Claude.
+  openaiApiKey: env.OPENAI_API_KEY || '',
+  openaiModel: env.OPENAI_MODEL || 'gpt-4.1',
+  openaiBaseUrl: (env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
+
   qlooApiKey: env.QLOO_API_KEY || '',
   // Qloo gives hackathon teams their own base URL with the API key.
   // Check the email or Devpost page that came with your key.
@@ -30,7 +35,14 @@ export function qlooIsLive() {
   return Boolean(config.qlooApiKey);
 }
 
-/** True when the Claude agent can run; otherwise only the quick-plan form works. */
+/** Which model runs the agent: 'openai' if its key is set, else 'anthropic' if its key is set, else null. */
+export function agentProvider() {
+  if (config.openaiApiKey) return 'openai';
+  if (config.anthropicApiKey) return 'anthropic';
+  return null;
+}
+
+/** True when the chat agent can run; otherwise only the quick-plan form works. */
 export function agentIsAvailable() {
-  return Boolean(config.anthropicApiKey);
+  return agentProvider() !== null;
 }

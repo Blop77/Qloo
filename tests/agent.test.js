@@ -164,3 +164,83 @@ test('a refusal gets a friendly reply', async () => {
   const { reply } = await createAgent({ client }).chat({ messages: [], ride: null }, '...');
   assert.match(reply, /plan a ride instead/);
 });
+
+// ---------- ChatGPT (OpenAI) ----------
+
+/** A stand-in for the OpenAI client that replays scripted Chat Completions responses. */
+function scriptedOpenAI(responses) {
+  const requests = [];
+  return {
+    requests,
+    chat: {
+      completions: {
+        create: async (params) => {
+          requests.push(structuredClone(params));
+          const next = responses.shift();
+          if (!next) throw new Error('no more scripted responses');
+          return typeof next === 'function' ? next(params) : next;
+        },
+      },
+    },
+  };
+}
+
+const call = (id, name, input) => ({
+  choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(input) } }] } }],
+});
+const say = (text) => ({ choices: [{ message: { role: 'assistant', content: text } }] });
+
+test('ChatGPT: finds places, builds, shows the ride and replies', async () => {
+  const client = scriptedOpenAI([
+    call('c1', 'find_places', { start: '18.5236,73.841', distance_km: 12, tastes: [{ name: 'Studio Ghibli', category: 'movie' }] }),
+    (params) => {
+      const result = params.messages.at(-1);
+      assert.equal(result.role, 'tool');
+      assert.equal(result.tool_call_id, 'c1');
+      assert.ok(JSON.parse(result.content).candidates.length > 0);
+      return call('c2', 'build_ride', {});
+    },
+    (params) => {
+      const ride = JSON.parse(params.messages.at(-1).content);
+      return call('c3', 'show_ride', { summary: 'A calm loop.', reasons: [{ stop_id: ride.stops[0].stop_id, why: 'Green and quiet.' }] });
+    },
+    say('Your ride is ready!'),
+  ]);
+
+  const agent = createAgent({ client, planDeps: { fetchImpl: offlineFetch } });
+  assert.equal(agent.provider, 'openai');
+  const { reply, ride, steps } = await agent.chat({ messages: [], ride: null }, 'Ride from FC Road, I love Studio Ghibli');
+
+  assert.equal(reply, 'Your ride is ready!');
+  assert.equal(ride.summary, 'A calm loop.');
+  assert.equal(ride.stops[0].why, 'Green and quiet.');
+  assert.equal(steps.at(-1).text, 'Wrote why each stop fits you');
+
+  const req = client.requests[0];
+  assert.equal(req.model, config.openaiModel);
+  assert.equal(req.messages[0].role, 'system');
+  assert.deepEqual(req.tools.map((t) => t.function.name), ['find_places', 'build_ride', 'show_ride']);
+  // The assistant's tool call is kept in history, followed by its tool result.
+  const history = client.requests[1].messages;
+  assert.equal(history.at(-2).tool_calls[0].id, 'c1');
+});
+
+test('ChatGPT: bad tool arguments and tool errors go back as tool messages', async () => {
+  const client = scriptedOpenAI([
+    { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'build_ride', arguments: '{not json' } }] } }] },
+    (params) => {
+      const result = params.messages.at(-1);
+      assert.equal(result.role, 'tool');
+      assert.match(result.content, /^Error: No places yet/);
+      return say('Where are you starting?');
+    },
+  ]);
+  const { reply } = await createAgent({ client }).chat({ messages: [], ride: null }, 'hi');
+  assert.equal(reply, 'Where are you starting?');
+});
+
+test('ChatGPT: a refusal gets a friendly reply', async () => {
+  const client = scriptedOpenAI([{ choices: [{ message: { role: 'assistant', content: null, refusal: 'No.' } }] }]);
+  const { reply } = await createAgent({ client }).chat({ messages: [], ride: null }, '...');
+  assert.match(reply, /plan a ride instead/);
+});

@@ -3,6 +3,7 @@ import { after, before, test } from 'node:test';
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../src/config.js';
 import { createApp } from '../src/server.js';
+import { AgentUnavailableError } from '../src/agent.js';
 import { offlineFetch } from './helpers.js';
 
 config.qlooApiKey = ''; // demo data
@@ -113,4 +114,17 @@ test('serves the web app and blocks path traversal', async () => {
   assert.match(await home.text(), /<title>RideTaste<\/title>/);
   const sneaky = await fetch(`${base}/..%2fpackage.json`);
   assert.notEqual(sneaky.status, 200);
+});
+
+test('POST /api/chat also pauses chat when OpenAI is unavailable', async () => {
+  const noCredits = { chat: async () => { throw new AgentUnavailableError('OpenAI 429: You exceeded your current quota', 429); } };
+  const app = createApp({ agent: noCredits, planDeps: { fetchImpl: offlineFetch } });
+  await new Promise((resolve) => app.listen(0, resolve));
+  try {
+    const res = await fetch(`http://localhost:${app.address().port}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'plan a ride' }) });
+    assert.equal(res.status, 503);
+    assert.equal((await res.json()).agentDown, true);
+  } finally {
+    app.close();
+  }
 });

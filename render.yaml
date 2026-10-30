@@ -8,6 +8,8 @@ services:
     startCommand: npm start
     healthCheckPath: /api/status
     envVars:
+      - key: OPENAI_API_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: QLOO_API_KEY

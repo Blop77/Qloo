@@ -6,15 +6,15 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
-import { agentIsAvailable, config, qlooIsLive } from './config.js';
-import { createAgent } from './agent.js';
+import { agentIsAvailable, agentProvider, config, qlooIsLive } from './config.js';
+import { AgentUnavailableError, createAgent } from './agent.js';
 import { planRide, PlanError } from './planner.js';
 
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
 const MAX_BODY_BYTES = 32 * 1024;
 const MAX_SESSIONS = 500;
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
-// When Claude fails (no credits, bad key, overloaded, offline), chat pauses for a while and the
+// When the AI model fails (no credits, bad key, overloaded, offline), chat pauses for a while and the
 // web app plans with the quick planner instead, so rides keep working.
 const AGENT_PAUSE_MS = 2 * 60 * 1000;
 const AGENT_DOWN = 'The AI chat is taking a break, so rides come from the quick planner for now. Qloo still picks every stop.';
@@ -113,7 +113,7 @@ export function createApp({ agent, planDeps } = {}) {
         return sendJson(res, 200, { agent: agentReady(), qloo: qlooIsLive() ? 'live' : 'demo' });
       }
 
-      // Quick plan: no AI agent, just the planning pipeline. Works without an Anthropic key.
+      // Quick plan: no AI agent, just the planning pipeline. Works without an AI key.
       if (req.method === 'POST' && pathname === '/api/plan') {
         const body = await readJson(req);
         const ride = await planRide({
@@ -140,9 +140,10 @@ export function createApp({ agent, planDeps } = {}) {
           const { reply, ride, steps } = await rideAgent.chat(session, message);
           return sendJson(res, 200, { sessionId: session.id, reply, ride, steps: steps ?? [] });
         } catch (err) {
-          if (!(err instanceof Anthropic.APIError)) throw err;
+          if (!(err instanceof Anthropic.APIError || err instanceof AgentUnavailableError)) throw err;
           if (err instanceof Anthropic.AuthenticationError) console.error('Anthropic authentication failed: check ANTHROPIC_API_KEY');
-          console.error(`Claude unavailable (${err.status ?? err.name}), pausing chat: ${err.message}`);
+          if (err instanceof AgentUnavailableError && err.status === 401) console.error('OpenAI authentication failed: check OPENAI_API_KEY');
+          console.error(`AI model unavailable (${err.status ?? err.name}), pausing chat: ${err.message}`);
           agentPausedUntil = Date.now() + AGENT_PAUSE_MS;
           return sendJson(res, 503, { error: AGENT_DOWN, agentDown: true });
         } finally {
@@ -166,6 +167,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   createApp().listen(config.port, () => {
     console.log(`RideTaste running at http://localhost:${config.port}`);
     console.log(`  Qloo:  ${qlooIsLive() ? 'live API' : 'DEMO sample data (set QLOO_API_KEY for real results)'}`);
-    console.log(`  Agent: ${agentIsAvailable() ? config.model : 'off (set ANTHROPIC_API_KEY to enable chat)'}`);
+    const agentModel = agentProvider() === 'openai' ? `OpenAI ${config.openaiModel}` : `Claude ${config.model}`;
+    console.log(`  Agent: ${agentIsAvailable() ? agentModel : 'off (set OPENAI_API_KEY or ANTHROPIC_API_KEY to enable chat)'}`);
   });
 }
