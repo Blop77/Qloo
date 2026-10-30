@@ -239,6 +239,20 @@ test('ChatGPT: bad tool arguments and tool errors go back as tool messages', asy
   assert.equal(reply, 'Where are you starting?');
 });
 
+test('ChatGPT: reasoning_effort is sent only when configured', async () => {
+  const client = scriptedOpenAI([say('hi'), say('hi')]);
+  const agent = createAgent({ client });
+  await agent.chat({ messages: [], ride: null }, 'hello');
+  assert.equal('reasoning_effort' in client.requests[0], false);
+  config.openaiReasoningEffort = 'none';
+  try {
+    await agent.chat({ messages: [], ride: null }, 'hello');
+    assert.equal(client.requests[1].reasoning_effort, 'none');
+  } finally {
+    config.openaiReasoningEffort = '';
+  }
+});
+
 test('ChatGPT: a refusal gets a friendly reply', async () => {
   const client = scriptedOpenAI([{ choices: [{ message: { role: 'assistant', content: null, refusal: 'No.' } }] }]);
   const { reply } = await createAgent({ client }).chat({ messages: [], ride: null }, '...');

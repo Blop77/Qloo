@@ -410,6 +410,7 @@ function openaiAgent(openai, planDeps) {
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
       const response = await openai.chat.completions.create({
         model: config.openaiModel,
+        ...(config.openaiReasoningEffort ? { reasoning_effort: config.openaiReasoningEffort } : {}),
         messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...session.messages],
         tools: OPENAI_TOOLS,
       });

@@ -17,6 +17,9 @@ export const config = {
   // ChatGPT (OpenAI). When this key is set, the agent uses OpenAI instead of Claude.
   openaiApiKey: env.OPENAI_API_KEY || '',
   openaiModel: env.OPENAI_MODEL || 'gpt-4.1',
+  // Reasoning models (e.g. gpt-6.1-terra) only accept tools in Chat Completions with reasoning_effort 'none'.
+  // Leave empty for models without reasoning (e.g. gpt-4.1), which reject the setting.
+  openaiReasoningEffort: env.OPENAI_REASONING_EFFORT || '',
   openaiBaseUrl: (env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
 
   qlooApiKey: env.QLOO_API_KEY || '',
